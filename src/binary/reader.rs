@@ -16,7 +16,6 @@ pub struct WasmReader{
 
 pub fn decode_file(path:String) -> anyhow::Result<module::Module>{
     let v = std::fs::read(path)?;
-    // println!("data:{:?}",v);
     decode(v)
 }
 
@@ -160,50 +159,8 @@ impl WasmReader {
 
 }
 
-
-/// 读取段
-impl WasmReader {
-
-    /// 根据第一个单字节来判断导入的是什么类型的数据,读取导读描述
-    pub fn read_import_desc(&mut self) -> Option<module::ImportDesc>{
-        let mut desc = module::ImportDesc{
-            tag: self.read_byte(),
-            fun_type: None,
-            table: None,
-            mem: None,
-            global: None
-        };
-
-        match desc.tag {
-            None => {
-                panic!("read import desc none")
-            }
-            Some(b) => {
-                match b {
-                    module::IMPORT_TAG_FUNC => {
-                        desc.fun_type = self.read_var_u32();
-                    },
-                    module::IMPORT_TAG_TABLE => {
-                        desc.table = self.read_table_type();
-                    },
-                    module::IMPORT_TAG_MEM => {
-                        desc.mem = self.read_limits();
-                    },
-                    module::IMPORT_TAG_GLOBAL => {
-                        desc.global = self.read_global_type();
-                    },
-                    _ => {
-                        panic!("invalid import desc tag:{:?}",b);
-                    }
-                }
-            }
-        }
-
-        Some(desc)
-    }
-
-
-    /// 读取代码段
+/// 读取wasm二进制文件
+impl WasmReader{
     pub fn read_code(&mut self) -> Option<module::Code>{
         let mut code = module::Code{ locals: None, expr: None };
         match self.read_bytes() {
@@ -219,29 +176,8 @@ impl WasmReader {
         Some(code)
     }
 
-    pub fn read_locals_vec(&mut self) -> Option<Vec<module::Locals>>{
-        match self.read_var_u32() {
-            None => {
-                None
-            }
-            Some(n) => {
-                let mut v:Vec<module::Locals> = Vec::new();
-                for _ in 0..n {
-                    let locals = module::Locals{
-                        n: self.read_var_u32(),
-                        ty: self.read_val_type(),
-                    };
-                    v.push(locals);
-                }
-                Some(v)
-            }
-        }
-    }
-
-
-
     pub fn read_module(&mut self) -> Option<module::Module>{
-       return match self.read_sections(){
+        return match self.read_sections(){
             Ok(m) => {
                 Some(m)
             }
@@ -334,7 +270,67 @@ impl WasmReader {
         }
         Ok(m)
     }
+}
 
+/// 读取段
+impl WasmReader {
+
+    /// 根据第一个单字节来判断导入的是什么类型的数据,读取导读描述
+    pub fn read_import_desc(&mut self) -> Option<module::ImportDesc>{
+        let mut desc = module::ImportDesc{
+            tag: self.read_byte(),
+            fun_type: None,
+            table: None,
+            mem: None,
+            global: None
+        };
+
+        match desc.tag {
+            None => {
+                panic!("read import desc none")
+            }
+            Some(b) => {
+                match b {
+                    module::IMPORT_TAG_FUNC => {
+                        desc.fun_type = self.read_var_u32();
+                    },
+                    module::IMPORT_TAG_TABLE => {
+                        desc.table = self.read_table_type();
+                    },
+                    module::IMPORT_TAG_MEM => {
+                        desc.mem = self.read_limits();
+                    },
+                    module::IMPORT_TAG_GLOBAL => {
+                        desc.global = self.read_global_type();
+                    },
+                    _ => {
+                        panic!("invalid import desc tag:{:?}",b);
+                    }
+                }
+            }
+        }
+
+        Some(desc)
+    }
+
+    pub fn read_locals_vec(&mut self) -> Option<Vec<module::Locals>>{
+        match self.read_var_u32() {
+            None => {
+                None
+            }
+            Some(n) => {
+                let mut v:Vec<module::Locals> = Vec::new();
+                for _ in 0..n {
+                    let locals = module::Locals{
+                        n: self.read_var_u32(),
+                        ty: self.read_val_type(),
+                    };
+                    v.push(locals);
+                }
+                Some(v)
+            }
+        }
+    }
 
     pub fn read_non_custom_sec(&mut self, sec_id:u8, m: &mut module::Module) {
         match sec_id {
@@ -386,28 +382,6 @@ impl WasmReader {
                 Some(v)
             }
         }
-    }
-
-    pub fn read_func_type(&mut self) -> Option<module::FuncType>{
-        let ft = module::FuncType{
-            tag: self.read_byte(),
-            param_types: self.read_val_types(),
-            result_types: self.read_val_types(),
-        };
-
-        match ft.tag {
-            None => {
-                panic!("read func type none")
-            }
-            Some(n) => {
-                if n != module::FT_TAG {
-                    panic!("invalid elem type")
-                }
-
-                Some(ft)
-            }
-        }
-        
     }
 
     pub fn read_import_sec(&mut self) -> Option<Vec<module::Import>>{
@@ -480,24 +454,6 @@ impl WasmReader {
         }
     }
 
-    pub fn read_table_type(&mut self) -> Option<module::TableType>{
-        let tt = module::TableType{
-            elem_type: self.read_byte(),
-            limits: self.read_limits(),
-        };
-
-        match tt.elem_type {
-            None => {None}
-            Some(n) => {
-                if n != module::FUNC_REF {
-                    panic!("invalid element type:{:?}",n);
-                }
-
-                Some(tt)
-            }
-        }
-    }
-
     pub fn read_limits(&mut self) -> Option<module::Limits>{
 
         let mut limits = module::Limits{
@@ -543,7 +499,6 @@ impl WasmReader {
         }
     }
 
-
     pub fn read_global_sec(&mut self) -> Option<Vec<module::GlobalSec>>{
         match self.read_var_u32() {
             None => {
@@ -557,75 +512,6 @@ impl WasmReader {
                 };
                 println!("global-sec:{:?}",v);
                 Some(v)
-            }
-        }
-    }
-
-    pub fn read_global_type(&mut self) -> Option<module::GlobalType>{
-
-        let mut gt = module::GlobalType{
-            val_type: self.read_val_type(),
-            m: self.read_byte()
-        };
-
-        match gt.m {
-            None => {
-                panic!("read global type is none")
-            }
-            Some(n) => {
-                match n {
-                    module::MUT_CONST => {},
-                    module::MUT_VAR => {},
-                    _ => {
-                        panic!("malformed mutability:{:?}",n)
-                    },
-                }
-
-                gt.m = Some(n);
-
-                Some(gt)
-            }
-        }
-
-
-    }
-
-    pub fn read_val_types(&mut self) -> Option<Vec<u8>>{
-        match self.read_var_u32() {
-            None => {None}
-            Some(n) => {
-                let mut v:Vec<u8> = Vec::new();
-                for _ in 0..n {
-                    match self.read_val_type() {
-                        None => {
-                            panic!("read val none")
-                        }
-                        Some(num) => {
-                            v.push(num);
-                        }
-                    }
-                }
-                Some(v)
-            }
-        }
-    }
-
-    /// 这里进行一个处理,如果是0x41起,就连续取出,直到结尾是0x0b为止
-    pub fn read_val_type(&mut self) -> Option<u8>{
-        match self.read_byte() {
-            None => {panic!("read val type read byte is none")}
-            Some(mut n) => {
-                match n {
-                    module::VAL_TYPE_I32 => {},
-                    module::VAL_TYPE_F32 => {},
-                    module::VAL_TYPE_F64 => {},
-                    module::VAL_TYPE_I64 => {},
-                    _ => {
-                        panic!("malformed value type:{:?}",n);
-                    }
-                }
-
-                Some(n)
             }
         }
     }
@@ -735,7 +621,6 @@ impl WasmReader {
        }
     }
 
-
     pub fn read_data_sec(&mut self) -> Option<Vec<module::Data>>{
         match self.read_var_u32() {
             None => {
@@ -758,10 +643,11 @@ impl WasmReader {
         }
     }
 
-
 }
 
+/// 读取操作指令
 impl WasmReader {
+
     pub fn read_expr(&mut self) -> Option<instruction::Expr>{
         match self.read_instructions(){
             None => {
@@ -948,27 +834,6 @@ impl WasmReader {
 
     }
 
-    pub fn read_block_type(&mut self) -> Option<i32>{
-
-        match self.read_var_s32() {
-            None => {panic!("read i32 is none")}
-            Some(n) => {
-                if n < 0 {
-                    match n {
-                        module::BLOCK_TYPE_I32|
-                        module::BLOCK_TYPE_I64|
-                        module::BLOCK_TYPE_F32|
-                        module::BLOCK_TYPE_F64|
-                        module::BLOCK_TYPE_EMPTY => {Some(n)}
-                        _ => None
-                    }
-                } else {
-                    Some(n)
-                }
-            }
-        }
-    }
-
     pub fn read_if_args(&mut self) -> Option<instruction::ArgsEnum>{
 
         match self.read_block_type() {
@@ -1039,6 +904,140 @@ impl WasmReader {
         })
     }
 }
+
+/// 读取类型
+impl WasmReader {
+
+    pub fn read_func_type(&mut self) -> Option<module::FuncType>{
+        let ft = module::FuncType{
+            tag: self.read_byte(),
+            param_types: self.read_val_types(),
+            result_types: self.read_val_types(),
+        };
+
+        match ft.tag {
+            None => {
+                panic!("read func type none")
+            }
+            Some(n) => {
+                if n != module::FT_TAG {
+                    panic!("invalid elem type")
+                }
+
+                Some(ft)
+            }
+        }
+
+    }
+
+    pub fn read_table_type(&mut self) -> Option<module::TableType>{
+        let tt = module::TableType{
+            elem_type: self.read_byte(),
+            limits: self.read_limits(),
+        };
+
+        match tt.elem_type {
+            None => {None}
+            Some(n) => {
+                if n != module::FUNC_REF {
+                    panic!("invalid element type:{:?}",n);
+                }
+
+                Some(tt)
+            }
+        }
+    }
+
+    pub fn read_global_type(&mut self) -> Option<module::GlobalType>{
+
+        let mut gt = module::GlobalType{
+            val_type: self.read_val_type(),
+            m: self.read_byte()
+        };
+
+        match gt.m {
+            None => {
+                panic!("read global type is none")
+            }
+            Some(n) => {
+                match n {
+                    module::MUT_CONST => {},
+                    module::MUT_VAR => {},
+                    _ => {
+                        panic!("malformed mutability:{:?}",n)
+                    },
+                }
+
+                gt.m = Some(n);
+
+                Some(gt)
+            }
+        }
+
+
+    }
+
+    pub fn read_val_types(&mut self) -> Option<Vec<u8>>{
+        match self.read_var_u32() {
+            None => {None}
+            Some(n) => {
+                let mut v:Vec<u8> = Vec::new();
+                for _ in 0..n {
+                    match self.read_val_type() {
+                        None => {
+                            panic!("read val none")
+                        }
+                        Some(num) => {
+                            v.push(num);
+                        }
+                    }
+                }
+                Some(v)
+            }
+        }
+    }
+
+    pub fn read_val_type(&mut self) -> Option<u8>{
+        match self.read_byte() {
+            None => {panic!("read val type read byte is none")}
+            Some(mut n) => {
+                match n {
+                    module::VAL_TYPE_I32 => {},
+                    module::VAL_TYPE_F32 => {},
+                    module::VAL_TYPE_F64 => {},
+                    module::VAL_TYPE_I64 => {},
+                    _ => {
+                        panic!("malformed value type:{:?}",n);
+                    }
+                }
+
+                Some(n)
+            }
+        }
+    }
+
+    pub fn read_block_type(&mut self) -> Option<i32>{
+
+        match self.read_var_s32() {
+            None => {panic!("read i32 is none")}
+            Some(n) => {
+                if n < 0 {
+                    match n {
+                        module::BLOCK_TYPE_I32|
+                        module::BLOCK_TYPE_I64|
+                        module::BLOCK_TYPE_F32|
+                        module::BLOCK_TYPE_F64|
+                        module::BLOCK_TYPE_EMPTY => {Some(n)}
+                        _ => None
+                    }
+                } else {
+                    Some(n)
+                }
+            }
+        }
+    }
+}
+
 
 #[cfg(test)]
 mod test {
