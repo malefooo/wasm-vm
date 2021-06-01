@@ -1,4 +1,5 @@
 use crate::binary::instruction;
+use std::sync::Arc;
 
 /**
 机器码映射
@@ -68,9 +69,9 @@ tag:0-函数/1-表/2-内存/3-全局变量
 **/
 
 /// 魔术号 常量
-pub const MAGIC_NUMBER:&[u8;4] = b"\0asm";
+pub const MAGIC_NUMBER:u32 = 0x6D736100;
 /// 版本号 常量
-pub const VERSION:&[u8;1] = b"1";
+pub const VERSION:u32 = 0x00000001;
 /// 导入函数,表,内存,全局变量的tag值,这个tag值是导入描述的地一个单字节
 pub const IMPORT_TAG_FUNC:u8 = 0;
 pub const IMPORT_TAG_TABLE:u8 = 1;
@@ -115,7 +116,8 @@ pub const FT_TAG:u8 = 0x60;
 pub const FUNC_REF:u8 = 0x70;
 
 
-///wasm二进制格式的结构提映射
+/// wasm二进制格式的结构提映射
+/// 后改良加个Arc
 #[derive(Debug,Clone)]
 pub struct Module{
     pub magic:Option<u32>,//魔数
@@ -132,6 +134,27 @@ pub struct Module{
     pub elem_sec:Option<Vec<Elem>>,//元素段
     pub code_sec:Option<Vec<Code>>,//代码段
     pub data_sec:Option<Vec<Data>>,//数据段
+}
+
+impl Module{
+    pub fn new()->Module{
+        Module{
+            magic: None,
+            version: None,
+            custom_secs: None,
+            type_sec: None,
+            import_sec: None,
+            func_sec: None,
+            table_sec: None,
+            mem_sec: None,
+            global_sec: None,
+            export_sec: None,
+            start_sec: None,
+            elem_sec: None,
+            code_sec: None,
+            data_sec: None
+        }
+    }
 }
 
 /// 导入段
@@ -284,7 +307,20 @@ mod test{
     pub fn test1(){
         use crate::binary::{reader,module,leb128};
         crate::binary::init();
-        let r = reader::decode_file("./hw_rust.wasm".to_string());
-        println!("{:?}",r);
+        let r = reader::decode_file("./hw_rust.wasm".to_string()).unwrap();
+        assert_eq!(r.magic,Some(module::MAGIC_NUMBER));
+        assert_eq!(r.version,Some(module::VERSION));
+        assert_eq!(r.custom_secs.and_then(|v|Some(v.len())),Some(2));
+        assert_eq!(r.type_sec.and_then(|v|Some(v.len())),Some(15));
+        assert_eq!(r.import_sec.and_then(|v|Some(v.len())),None);
+        assert_eq!(r.func_sec.and_then(|v|Some(v.len())),Some(171));
+        assert_eq!(r.table_sec.and_then(|v|Some(v.len())),Some(1));
+        assert_eq!(r.mem_sec.and_then(|v|Some(v.len())),Some(1));
+        assert_eq!(r.global_sec.and_then(|v|Some(v.len())),Some(4));
+        assert_eq!(r.export_sec.and_then(|v|Some(v.len())),Some(5));
+        assert_eq!(r.start_sec,None);
+        assert_eq!(r.elem_sec.and_then(|v|Some(v.len())),Some(1));
+        assert_eq!(r.code_sec.and_then(|v|Some(v.len())),Some(171));
+        assert_eq!(r.data_sec.and_then(|v|Some(v.len())),Some(4));
     }
 }

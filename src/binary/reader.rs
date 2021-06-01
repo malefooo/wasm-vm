@@ -270,6 +270,23 @@ impl WasmReader{
         }
         Ok(m)
     }
+
+    pub fn read_non_custom_sec(&mut self, sec_id:u8, m: &mut module::Module) {
+        match sec_id {
+            module::SEC_TYPE_ID => m.type_sec = self.read_type_sec(),
+            module::SEC_IMPORT_ID => m.import_sec = self.read_import_sec(),
+            module::SEC_FUNC_ID => m.func_sec = self.read_indices(),
+            module::SEC_TABLE_ID => m.table_sec = self.read_table_sec(),
+            module::SEC_MEM_ID => m.mem_sec = self.read_mem_sec(),
+            module::SEC_GLOBAL_ID => m.global_sec = self.read_global_sec(),
+            module::SEC_EXPORT_ID => m.export_sec = self.read_export_sec(),
+            module::SEC_START_ID => m.start_sec = self.read_start_sec(),
+            module::SEC_ELEM_ID => m.elem_sec = self.read_elem_sec(),
+            module::SEC_CODE_ID => m.code_sec = self.read_code_sec(),
+            module::SEC_DATA_ID => m.data_sec = self.read_data_sec(),
+            _ => {}
+        }
+    }
 }
 
 /// 读取段
@@ -332,23 +349,6 @@ impl WasmReader {
         }
     }
 
-    pub fn read_non_custom_sec(&mut self, sec_id:u8, m: &mut module::Module) {
-        match sec_id {
-            module::SEC_TYPE_ID => m.type_sec = self.read_type_sec(),
-            module::SEC_IMPORT_ID => m.import_sec = self.read_import_sec(),
-            module::SEC_FUNC_ID => m.func_sec = self.read_indices(),
-            module::SEC_TABLE_ID => m.table_sec = self.read_table_sec(),
-            module::SEC_MEM_ID => m.mem_sec = self.read_mem_sec(),
-            module::SEC_GLOBAL_ID => m.global_sec = self.read_global_sec(),
-            module::SEC_EXPORT_ID => m.export_sec = self.read_export_sec(),
-            module::SEC_START_ID => m.start_sec = self.read_start_sec(),
-            module::SEC_ELEM_ID => m.elem_sec = self.read_elem_sec(),
-            module::SEC_CODE_ID => m.code_sec = self.read_code_sec(),
-            module::SEC_DATA_ID => m.data_sec = self.read_data_sec(),
-            _ => {}
-        }
-    }
-
     pub fn read_custom_sec(&mut self) -> Option<module::CustomSecs>{
         match self.read_bytes() {
             None => {
@@ -378,7 +378,7 @@ impl WasmReader {
                         }
                     }
                 };
-                println!("type-sec{:?}",v);
+                // println!("type-sec{:?}",v);
                 Some(v)
             }
         }
@@ -394,7 +394,7 @@ impl WasmReader {
                 for _ in 0..n {
                     v.push(self.read_import().unwrap());
                 };
-                println!("import-sec:{:?}",v);
+                // println!("import-sec:{:?}",v);
                 Some(v)
             }
         }
@@ -425,7 +425,7 @@ impl WasmReader {
                         }
                     }
                 };
-                println!("func-sec:{:?}",v);
+                // println!("func-sec:{:?}",v);
                 Some(v)
             }
         }
@@ -448,7 +448,7 @@ impl WasmReader {
                         }
                     }
                 };
-                println!("table-sec:{:?}",v);
+                // println!("table-sec:{:?}",v);
                 Some(v)
             }
         }
@@ -493,7 +493,7 @@ impl WasmReader {
                         }
                     }
                 };
-                println!("mem-sec:{:?}",v);
+                // println!("mem-sec:{:?}",v);
                 Some(v)
             }
         }
@@ -510,7 +510,7 @@ impl WasmReader {
                     let g = module::GlobalSec{ ty: self.read_global_type(), init: self.read_expr() };
                     v.push(g);
                 };
-                println!("global-sec:{:?}",v);
+                // println!("global-sec:{:?}",v);
                 Some(v)
             }
         }
@@ -553,7 +553,7 @@ impl WasmReader {
                     export.desc = Some(desc);
                     v.push(export);
                 };
-                println!("export-sec:{:?}",v);
+                // println!("export-sec:{:?}",v);
                 Some(v)
             }
         }
@@ -565,7 +565,7 @@ impl WasmReader {
                 None
             }
             Some(n) => {
-                println!("start-sec:{:?}",n);
+                // println!("start-sec:{:?}",n);
                 Some(n)
             }
         }
@@ -587,7 +587,7 @@ impl WasmReader {
 
                     v.push(elem);
                 };
-                println!("elem-sec:{:?}",v);
+                // println!("elem-sec:{:?}",v);
                 Some(v)
             }
         }
@@ -615,7 +615,7 @@ impl WasmReader {
                        }
                    }
                }
-               println!("code-sec:{:?}",vc);
+               // println!("code-sec:{:?}",vc);
                Some(vc)
            }
        }
@@ -637,7 +637,7 @@ impl WasmReader {
 
                     v.push(data);
                 }
-                println!("data-sec:{:?}",v);
+                // println!("data-sec:{:?}",v);
                 Some(v)
             }
         }
