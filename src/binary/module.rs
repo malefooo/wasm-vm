@@ -108,13 +108,13 @@ pub const BLOCK_TYPE_F32:i32 = -3;
 pub const BLOCK_TYPE_F64:i32 = -4;
 pub const BLOCK_TYPE_EMPTY:i32 = -64;
 
-
-
 pub const MUT_CONST:u8 = 0;
 pub const MUT_VAR:u8 = 1;
 pub const FT_TAG:u8 = 0x60;
 pub const FUNC_REF:u8 = 0x70;
 
+pub const PAGE_SIZE:usize = 65536;
+pub const MAX_PAGE_COUNT:usize = 65536;
 
 /// wasm二进制格式的结构提映射
 /// 后改良加个Arc

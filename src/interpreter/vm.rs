@@ -1,4 +1,7 @@
-use crate::{interpreter::operand,binary};
+use crate::{interpreter::operand,
+            binary,
+            binary::instruction::MemArg,
+            interpreter::vm_memory::Memory};
 
 
 use crate::{binary::instruction::ArgsEnum,binary::opcodes,utils};
@@ -7,6 +10,7 @@ use std::os::unix::raw::uid_t;
 use std::any::type_name;
 use bitintr::{Lzcnt, Tzcnt, Popcnt};
 use std::ops::Neg;
+use byteorder::ByteOrder;
 
 type InstrFn = fn(vm:&mut Vm,args:ArgsEnum);
 pub static OPCODE_MAP:OnceCell<Vec<Option<InstrFn>>> = OnceCell::new();
@@ -163,6 +167,34 @@ pub fn init(){
     v.insert(opcodes::I64Extend8S as usize,Some(|vm:&mut Vm, args:ArgsEnum|{vm.i64_extend_8_s()}));
     v.insert(opcodes::I64Extend16S as usize,Some(|vm:&mut Vm, args:ArgsEnum|{vm.i64_extend_16_s()}));
     v.insert(opcodes::TruncSat as usize,Some(|vm:&mut Vm, args:ArgsEnum|{vm.trunc_sat(args.get_u8())}));
+    v.insert(opcodes::MemorySize as usize, Some(|vm:&mut Vm,args:ArgsEnum|{vm.memory_size()}));
+    v.insert(opcodes::MemoryGrow as usize,Some(|vm:&mut Vm,args:ArgsEnum|{vm.memory_grow()}));
+
+    // 这里有点神奇,如果先insert store,再insert load,会让store的变成none
+    v.insert(opcodes::I32Load as usize,Some(|vm:&mut Vm,args:ArgsEnum|{vm.i32_load(args.get_mem_args())}));
+    v.insert(opcodes::I64Load as usize,Some(|vm:&mut Vm,args:ArgsEnum|{vm.i64_load(args.get_mem_args())}));
+    v.insert(opcodes::F32Load as usize,Some(|vm:&mut Vm,args:ArgsEnum|{vm.f32_load(args.get_mem_args())}));
+    v.insert(opcodes::F64Load as usize,Some(|vm:&mut Vm,args:ArgsEnum|{vm.f64_load(args.get_mem_args())}));
+    v.insert(opcodes::I32Load8S as usize,Some(|vm:&mut Vm,args:ArgsEnum|{vm.i32_load_8s(args.get_mem_args())}));
+    v.insert(opcodes::I32Load8U as usize,Some(|vm:&mut Vm,args:ArgsEnum|{vm.i32_load_8u(args.get_mem_args())}));
+    v.insert(opcodes::I32Load16S as usize,Some(|vm:&mut Vm,args:ArgsEnum|{vm.i32_load_16s(args.get_mem_args())}));
+    v.insert(opcodes::I32Load16U as usize,Some(|vm:&mut Vm,args:ArgsEnum|{vm.i32_load_16u(args.get_mem_args())}));
+    v.insert(opcodes::I64Load8S as usize,Some(|vm:&mut Vm,args:ArgsEnum|{vm.i64_load_8s(args.get_mem_args())}));
+    v.insert(opcodes::I64Load8U as usize,Some(|vm:&mut Vm,args:ArgsEnum|{vm.i64_load_8u(args.get_mem_args())}));
+    v.insert(opcodes::I64Load16S as usize,Some(|vm:&mut Vm,args:ArgsEnum|{vm.i64_load_16s(args.get_mem_args())}));
+    v.insert(opcodes::I64Load16U as usize,Some(|vm:&mut Vm,args:ArgsEnum|{vm.i64_load_16u(args.get_mem_args())}));
+    v.insert(opcodes::I64Load32S as usize,Some(|vm:&mut Vm,args:ArgsEnum|{vm.i64_load_32s(args.get_mem_args())}));
+    v.insert(opcodes::I64Load32U as usize,Some(|vm:&mut Vm,args:ArgsEnum|{vm.i64_load_32u(args.get_mem_args())}));
+
+    v.insert(opcodes::I32Store as usize,Some(|vm:&mut Vm,args:ArgsEnum|{vm.i32_store(args.get_mem_args())}));
+    v.insert(opcodes::I64Store as usize,Some(|vm:&mut Vm,args:ArgsEnum|{vm.i64_store(args.get_mem_args())}));
+    v.insert(opcodes::F32Store as usize,Some(|vm:&mut Vm,args:ArgsEnum|{vm.f32_store(args.get_mem_args())}));
+    v.insert(opcodes::F64Store as usize,Some(|vm:&mut Vm,args:ArgsEnum|{vm.f64_store(args.get_mem_args())}));
+    v.insert(opcodes::I32Store8 as usize,Some(|vm:&mut Vm,args:ArgsEnum|{vm.i32_store_8(args.get_mem_args())}));
+    v.insert(opcodes::I32Store16 as usize,Some(|vm:&mut Vm,args:ArgsEnum|{vm.i32_store_16(args.get_mem_args())}));
+    v.insert(opcodes::I64Store8 as usize,Some(|vm:&mut Vm,args:ArgsEnum|{vm.i64_store_8(args.get_mem_args())}));
+    v.insert(opcodes::I64Store16 as usize,Some(|vm:&mut Vm,args:ArgsEnum|{vm.i64_store_16(args.get_mem_args())}));
+    v.insert(opcodes::I64Store32 as usize,Some(|vm:&mut Vm,args:ArgsEnum|{vm.i64_store_32(args.get_mem_args())}));
 
     OPCODE_MAP.set(v);
 }
@@ -171,6 +203,7 @@ pub fn init(){
 pub struct Vm {
     operand_stack:operand::OperandStack,
     module:binary::module::Module,
+    memory:Memory,
 }
 
 /// i32
@@ -1059,8 +1092,8 @@ impl Vm {
 
 impl Vm {
 
-    pub fn new(var1:operand::OperandStack,var2:binary::module::Module) -> Vm{
-        Vm{ operand_stack: var1, module: var2 }
+    pub fn new(var1:operand::OperandStack,var2:binary::module::Module,var3:Memory) -> Vm{
+        Vm{ operand_stack: var1, module: var2 , memory: var3 }
     }
 
     // pub fn exec_code(&mut self, idx:usize){
@@ -1355,6 +1388,439 @@ impl Vm{
 
 }
 
+/// memory
+impl Vm{
+    pub fn memory_size(&mut self){
+        self.operand_stack.push_u32(self.memory.size() as u32);
+    }
+
+    pub fn memory_grow(&mut self){
+
+        self.operand_stack.pop_u32().and_then(|v|{
+            let old_size = self.memory.grow(v as usize);
+            self.operand_stack.push_u32(old_size as u32);
+            Some(())
+        }).or_else(||{
+            println!("pop u32 is none");
+            None
+        });
+
+    }
+
+    // 获取基址+偏移量=值所在位置
+    pub fn get_offset(&mut self,mem_arg:MemArg) -> Option<u64>{
+        self.operand_stack.pop_u32().and_then(|v|{
+            mem_arg.offset.and_then(|offset|Some((offset + v) as u64))
+                .or_else(||{
+                    println!("memarg offset is none");
+                    None
+                })
+        }).or_else(||{
+                println!("pop u32 none");
+                None
+        })
+    }
+
+    pub fn read_u8(&mut self,mem_arg:MemArg) -> Option<u8>{
+        self.get_offset(mem_arg).and_then(|offset|{
+            let mut buf:[u8;1] = [0;1];
+            self.memory.read(offset as usize,&mut buf);
+            Some(buf[0])
+        }).or_else(||{
+            println!("read u8 none");
+            None
+        })
+    }
+
+    pub fn read_u16(&mut self,mem_arg:MemArg) -> Option<u16>{
+        self.get_offset(mem_arg).and_then(|offset|{
+            let mut buf:[u8;2] = [0;2];
+            self.memory.read(offset as usize,&mut buf);
+            let result = byteorder::LittleEndian::read_u16(buf.as_slice());
+            Some(result)
+        }).or_else(||{
+            println!("read u16 none");
+            None
+        })
+    }
+
+    pub fn read_u32(&mut self,mem_arg:MemArg) -> Option<u32>{
+        self.get_offset(mem_arg).and_then(|offset|{
+            let mut buf:[u8;4] = [0;4];
+            self.memory.read(offset as usize,&mut buf);
+            let result = byteorder::LittleEndian::read_u32(buf.as_slice());
+            Some(result)
+        }).or_else(||{
+            println!("read u32 none");
+            None
+        })
+    }
+
+    pub fn read_u64(&mut self,mem_arg:MemArg) -> Option<u64>{
+        self.get_offset(mem_arg).and_then(|offset|{
+            let mut buf:[u8;8] = [0;8];
+            self.memory.read(offset as usize,&mut buf);
+            let result = byteorder::LittleEndian::read_u64(buf.as_slice());
+            Some(result)
+        }).or_else(||{
+            println!("read u64 none");
+            None
+        })
+    }
+
+    pub fn write_u8(&mut self,mem_arg:MemArg,n:u8){
+        self.get_offset(mem_arg).and_then(|offset|{
+            self.memory.write(offset as usize,vec![n].as_slice());
+            Some(())
+        }).or_else(||{
+            println!("get offset none");
+            None
+        });
+    }
+
+    pub fn write_u16(&mut self,mem_arg:MemArg,n:u16){
+        self.get_offset(mem_arg).and_then(|offset|{
+            let mut v:[u8;2] = [0;2];
+            byteorder::LittleEndian::write_u16(&mut v,n);
+            self.memory.write(offset as usize,&v);
+            Some(())
+        }).or_else(||{
+            println!("get offset none");
+            None
+        });
+    }
+
+    pub fn write_u32(&mut self,mem_arg:MemArg,n:u32){
+        self.get_offset(mem_arg).and_then(|offset|{
+            let mut v:[u8;4] = [0;4];
+            byteorder::LittleEndian::write_u32(&mut v,n);
+            self.memory.write(offset as usize,&v);
+            Some(())
+        }).or_else(||{
+            println!("get offset none");
+            None
+        });
+    }
+
+    pub fn write_u64(&mut self,mem_arg:MemArg,n:u64){
+        self.get_offset(mem_arg).and_then(|offset|{
+            let mut v:[u8;8] = [0;8];
+            byteorder::LittleEndian::write_u64(&mut v,n);
+            self.memory.write(offset as usize,&v);
+            Some(())
+        }).or_else(||{
+            println!("get offset none");
+            None
+        });
+    }
+
+    pub fn i32_store(&mut self,mem_arg:MemArg){
+        self.operand_stack.pop_u32().and_then(|v|{
+            self.write_u32(mem_arg,v);
+            Some(())
+        }).or_else(||{
+            println!("pop u32 none");
+            None
+        });
+    }
+
+    pub fn i64_store(&mut self,mem_arg:MemArg){
+        self.operand_stack.pop_u64().and_then(|v|{
+            self.write_u64(mem_arg,v);
+           Some(())
+        }).or_else(||{
+            println!("pop u64 none");
+            None
+        });
+    }
+
+    pub fn f32_store(&mut self,mem_arg:MemArg){
+        self.operand_stack.pop_u32().and_then(|v|{
+            self.write_u32(mem_arg,v);
+            Some(())
+        }).or_else(||{
+            println!("pop u64 none");
+            None
+        });
+    }
+
+    pub fn f64_store(&mut self,mem_arg:MemArg){
+        self.operand_stack.pop_u64().and_then(|v|{
+            self.write_u64(mem_arg,v);
+            Some(())
+        }).or_else(||{
+            println!("pop u64 none");
+            None
+        });
+    }
+
+    pub fn i32_store_8(&mut self,mem_arg:MemArg){
+        self.operand_stack.pop().and_then(|a|{
+            match a.get_type() {
+                "U32" => {
+                    self.write_u8(mem_arg, a.get_u32() as u8);
+                }
+                "I32" => {
+                    self.write_u8(mem_arg, a.get_i32() as u8);
+                }
+                _ => {panic!("not u32 or i32")}
+            }
+            Some(())
+        }).or_else(||{
+            println!("pop u64 none");
+            None
+        });
+        // self.operand_stack.pop_u32().and_then(|v|{
+        //     self.write_u8(mem_arg,v as u8);
+        //     Some(())
+        // }).or_else(||{
+        //     println!("pop u64 none");
+        //     None
+        // });
+    }
+
+    pub fn i32_store_16(&mut self,mem_arg:MemArg){
+        self.operand_stack.pop().and_then(|a|{
+            match a.get_type() {
+                "U32" => {
+                    self.write_u16(mem_arg, a.get_u32() as u16);
+                }
+                "I32" => {
+                    self.write_u16(mem_arg, a.get_i32() as u16);
+                }
+                _ => {panic!("not u32 or i32")}
+            }
+            Some(())
+        }).or_else(||{
+            println!("pop u64 none");
+            None
+        });
+        // self.operand_stack.pop_u32().and_then(|v|{
+        //     self.write_u16(mem_arg,v as u16);
+        //     Some(())
+        // }).or_else(||{
+        //     println!("pop u64 none");
+        //     None
+        // });
+    }
+
+    pub fn i64_store_8(&mut self,mem_arg:MemArg){
+        self.operand_stack.pop().and_then(|a|{
+            match a.get_type() {
+                "U64" => {
+                    self.write_u8(mem_arg, a.get_u64() as u8);
+                }
+                "I64" => {
+                    self.write_u8(mem_arg, a.get_i64() as u8);
+                }
+                _ => {panic!("not u64 or i64")}
+            }
+            Some(())
+        }).or_else(||{
+            println!("pop u64 none");
+            None
+        });
+        // self.operand_stack.pop_u64().and_then(|v|{
+        //     self.write_u8(mem_arg,v as u8);
+        //     Some(())
+        // }).or_else(||{
+        //     println!("pop u64 none");
+        //     None
+        // });
+    }
+
+    pub fn i64_store_16(&mut self,mem_arg:MemArg){
+        self.operand_stack.pop().and_then(|a|{
+            match a.get_type() {
+                "U64" => {
+                    self.write_u16(mem_arg, a.get_u64() as u16);
+                }
+                "I64" => {
+                    self.write_u16(mem_arg, a.get_i64() as u16);
+                }
+                _ => {panic!("not u64 or i64")}
+            }
+            Some(())
+        }).or_else(||{
+            println!("pop u64 none");
+            None
+        });
+        // self.operand_stack.pop_u64().and_then(|v|{
+        //     self.write_u16(mem_arg,v as u16);
+        //     Some(())
+        // }).or_else(||{
+        //     println!("pop u64 none");
+        //     None
+        // });
+    }
+
+    pub fn i64_store_32(&mut self,mem_arg:MemArg){
+        self.operand_stack.pop().and_then(|a|{
+            match a.get_type() {
+                "U64" => {
+                    self.write_u32(mem_arg, a.get_u64() as u32);
+                }
+                "I64" => {
+                    self.write_u32(mem_arg, a.get_i64() as u32);
+                }
+                _ => {panic!("not u64 or i64")}
+            }
+            Some(())
+        }).or_else(||{
+            println!("pop u64 none");
+            None
+        });
+        // self.operand_stack.pop_u64().and_then(|v|{
+        //     self.write_u32(mem_arg,v as u32);
+        //     Some(())
+        // }).or_else(||{
+        //     println!("pop u64 none");
+        //     None
+        // });
+    }
+
+
+    pub fn i32_load(&mut self,mem_arg:MemArg){
+        self.read_u32(mem_arg).and_then(|v|{
+            self.operand_stack.push_u32(v);
+            Some(())
+        }).or_else(||{
+            println!("read u32 none");
+            None
+        });
+    }
+
+    pub fn i64_load(&mut self,mem_arg:MemArg){
+        self.read_u64(mem_arg).and_then(|v|{
+            self.operand_stack.push_u64(v);
+            Some(())
+        }).or_else(||{
+            println!("read u64 none");
+            None
+        });
+    }
+
+    pub fn f32_load(&mut self,mem_arg:MemArg){
+        self.read_u32(mem_arg).and_then(|v|{
+            self.operand_stack.push_u32(v);
+            Some(())
+        }).or_else(||{
+            println!("read u32 none");
+            None
+        });
+    }
+
+    pub fn f64_load(&mut self,mem_arg:MemArg){
+        self.read_u64(mem_arg).and_then(|v|{
+            self.operand_stack.push_u64(v);
+            Some(())
+        }).or_else(||{
+            println!("read u64 none");
+            None
+        });
+    }
+
+    pub fn i32_load_8s(&mut self,mem_arg:MemArg){
+        self.read_u8(mem_arg).and_then(|v|{
+            self.operand_stack.push_s32(v as i8 as i32);
+            Some(())
+        }).or_else(||{
+            println!("read u8 none");
+            None
+        });
+    }
+
+    pub fn i32_load_8u(&mut self,mem_arg:MemArg){
+        self.read_u8(mem_arg).and_then(|v|{
+            self.operand_stack.push_u32(v as u32);
+            Some(())
+        }).or_else(||{
+            println!("read u8 none");
+            None
+        });
+    }
+
+    pub fn i32_load_16s(&mut self,mem_arg:MemArg){
+        self.read_u16(mem_arg).and_then(|v|{
+            self.operand_stack.push_s32(v as i16 as i32);
+            Some(())
+        }).or_else(||{
+            println!("read u16 none");
+            None
+        });
+    }
+
+    pub fn i32_load_16u(&mut self,mem_arg:MemArg){
+        self.read_u16(mem_arg).and_then(|v|{
+            self.operand_stack.push_u32(v as u32);
+            Some(())
+        }).or_else(||{
+            println!("read u16 none");
+            None
+        });
+    }
+
+    pub fn i64_load_8s(&mut self,mem_arg:MemArg){
+        self.read_u8(mem_arg).and_then(|v|{
+            self.operand_stack.push_s64(v as i8 as i64);
+            Some(())
+        }).or_else(||{
+            println!("read u8 none");
+            None
+        });
+    }
+
+    pub fn i64_load_8u(&mut self,mem_arg:MemArg){
+        self.read_u8(mem_arg).and_then(|v|{
+            self.operand_stack.push_u64(v as u64);
+            Some(())
+        }).or_else(||{
+            println!("read u8 none");
+            None
+        });
+    }
+
+    pub fn i64_load_16s(&mut self,mem_arg:MemArg){
+        self.read_u16(mem_arg).and_then(|v|{
+            self.operand_stack.push_s64(v as i16 as i64);
+            Some(())
+        }).or_else(||{
+            println!("read u16 none");
+            None
+        });
+    }
+
+    pub fn i64_load_16u(&mut self,mem_arg:MemArg){
+        self.read_u16(mem_arg).and_then(|v|{
+            self.operand_stack.push_u64(v as u64);
+            Some(())
+        }).or_else(||{
+            println!("read u16 none");
+            None
+        });
+    }
+
+    pub fn i64_load_32s(&mut self,mem_arg:MemArg){
+        self.read_u32(mem_arg).and_then(|v|{
+            self.operand_stack.push_s64(v as i32 as i64);
+            Some(())
+        }).or_else(||{
+            println!("read u32 none");
+            None
+        });
+    }
+
+    pub fn i64_load_32u(&mut self,mem_arg:MemArg){
+        self.read_u32(mem_arg).and_then(|v|{
+            self.operand_stack.push_u64(v as u64);
+            Some(())
+        }).or_else(||{
+            println!("read u32 none");
+            None
+        });
+    }
+}
+
 pub fn trunc_sat_u(z:f64,n:usize) -> u64{
     if z.is_nan() {
         return 0;
@@ -1421,9 +1887,16 @@ mod test{
     pub fn test2(){
         let m = binary::module::Module::new();
         let stack = interpreter::operand::new();
+        let limit = binary::module::Limits{
+            tag: None,
+            min: None,
+            max: None
+        };
+        let memory = interpreter::vm_memory::Memory::new(limit);
         let mut vm = interpreter::vm::Vm{
             operand_stack: stack,
-            module: m
+            module: m,
+            memory
         };
 
         vm.i32_const(100_i32);
@@ -1454,7 +1927,9 @@ mod test{
     }
 
     pub fn none_args_2(vm: &mut interpreter::vm::Vm, var1:ArgsEnum, op_code:u8) -> binary::instruction::ArgsEnum{
-        vm.operand_stack.push(var1);
+        if !var1.eq(&ArgsEnum::NONE) {
+            vm.operand_stack.push(var1);
+        }
 
         interpreter::vm::OPCODE_MAP.get()
             .and_then(|v|v.get(op_code as usize).clone())
@@ -1472,9 +1947,16 @@ mod test{
         use crate::binary::opcodes;
         let m = binary::module::Module::new();
         let stack = interpreter::operand::new();
+        let limit = binary::module::Limits{
+            tag: Some(1),
+            min: Some(10),
+            max: Some(20)
+        };
+        let memory = interpreter::vm_memory::Memory::new(limit);
         let mut vm = interpreter::vm::Vm{
             operand_stack: stack,
-            module: m
+            module: m,
+            memory
         };
 
         //初始话操作数组
@@ -1483,14 +1965,14 @@ mod test{
         //i32eq
         assert_eq!(none_args(&mut vm,ArgsEnum::I32(1),ArgsEnum::I32(1),opcodes::I32Eq),ArgsEnum::Bool(true));
         //i32ne
-        assert_eq!(none_args(&mut vm,ArgsEnum::I32(1),ArgsEnum::I32(1),opcodes::I32Ne),ArgsEnum::Bool(true));
-        assert_eq!(none_args(&mut vm,ArgsEnum::I32(1),ArgsEnum::I32(-1),opcodes::I32Ne),ArgsEnum::Bool(false));
+        assert_eq!(none_args(&mut vm,ArgsEnum::I32(1),ArgsEnum::I32(1),opcodes::I32Ne),ArgsEnum::Bool(false));
+        assert_eq!(none_args(&mut vm,ArgsEnum::I32(1),ArgsEnum::I32(-1),opcodes::I32Ne),ArgsEnum::Bool(true));
         //i32lts
         assert_eq!(none_args(&mut vm,ArgsEnum::I32(-1),ArgsEnum::I32(1),opcodes::I32LtS),ArgsEnum::Bool(true));
         assert_eq!(none_args(&mut vm,ArgsEnum::I32(1),ArgsEnum::I32(-1),opcodes::I32LtS),ArgsEnum::Bool(false));
         //i32ltu
-        assert_eq!(none_args(&mut vm,ArgsEnum::U32(2),ArgsEnum::U32(1),opcodes::I32LtU),ArgsEnum::Bool(false));
-        assert_eq!(none_args(&mut vm,ArgsEnum::U32(1),ArgsEnum::U32(1),opcodes::I32LtU),ArgsEnum::Bool(true));
+        assert_eq!(none_args(&mut vm,ArgsEnum::U32(-1_i32 as u32),ArgsEnum::U32(1),opcodes::I32LtU),ArgsEnum::Bool(false));
+        assert_eq!(none_args(&mut vm,ArgsEnum::U32(1),ArgsEnum::U32(-1_i32 as u32),opcodes::I32LtU),ArgsEnum::Bool(true));
         //i32gts
         assert_eq!(none_args(&mut vm,ArgsEnum::I32(-1),ArgsEnum::I32(1),opcodes::I32GtS),ArgsEnum::Bool(false));
         assert_eq!(none_args(&mut vm,ArgsEnum::I32(1),ArgsEnum::I32(-1),opcodes::I32GtS),ArgsEnum::Bool(true));
@@ -1513,14 +1995,14 @@ mod test{
         //i64eq
         assert_eq!(none_args(&mut vm,ArgsEnum::I64(1),ArgsEnum::I64(1),opcodes::I64Eq),ArgsEnum::Bool(true));
         //i64ne
-        assert_eq!(none_args(&mut vm,ArgsEnum::I64(1),ArgsEnum::I64(1),opcodes::I64Ne),ArgsEnum::Bool(true));
-        assert_eq!(none_args(&mut vm,ArgsEnum::I64(1),ArgsEnum::I64(-1),opcodes::I64Ne),ArgsEnum::Bool(false));
+        assert_eq!(none_args(&mut vm,ArgsEnum::I64(1),ArgsEnum::I64(1),opcodes::I64Ne),ArgsEnum::Bool(false));
+        assert_eq!(none_args(&mut vm,ArgsEnum::I64(1),ArgsEnum::I64(-1),opcodes::I64Ne),ArgsEnum::Bool(true));
         //i64lts
         assert_eq!(none_args(&mut vm,ArgsEnum::I64(-1),ArgsEnum::I64(1),opcodes::I64LtS),ArgsEnum::Bool(true));
         assert_eq!(none_args(&mut vm,ArgsEnum::I64(1),ArgsEnum::I64(-1),opcodes::I64LtS),ArgsEnum::Bool(false));
         //i64ltu
-        assert_eq!(none_args(&mut vm,ArgsEnum::U64(2),ArgsEnum::U64(1),opcodes::I64LtU),ArgsEnum::Bool(false));
-        assert_eq!(none_args(&mut vm,ArgsEnum::U64(1),ArgsEnum::U64(1),opcodes::I64LtU),ArgsEnum::Bool(true));
+        assert_eq!(none_args(&mut vm,ArgsEnum::U64(-1_i64 as u64),ArgsEnum::U64(1),opcodes::I64LtU),ArgsEnum::Bool(false));
+        assert_eq!(none_args(&mut vm,ArgsEnum::U64(1),ArgsEnum::U64(-1_i64 as u64),opcodes::I64LtU),ArgsEnum::Bool(true));
         //i64gts
         assert_eq!(none_args(&mut vm,ArgsEnum::I64(-1),ArgsEnum::I64(1),opcodes::I64GtS),ArgsEnum::Bool(false));
         assert_eq!(none_args(&mut vm,ArgsEnum::I64(1),ArgsEnum::I64(-1),opcodes::I64GtS),ArgsEnum::Bool(true));
@@ -1686,6 +2168,86 @@ mod test{
         assert_eq!(none_args_2(&mut vm,I64(-1),opcodes::F64ConvertI64S),F64(-1.0));
         assert_eq!(none_args_2(&mut vm,U64(-1_i64 as u64),opcodes::F64ConvertI64U),F64(1.8446744073709552e+19));
         assert_eq!(none_args_2(&mut vm,F32(1.5),opcodes::F64PromoteF32),F64(1.5));
-        assert_eq!(none_args_2(&mut vm,F32(1.5),opcodes::I32ReinterpretF32),I32(0x3FC0_0000));
+    }
+
+
+    pub fn mem(vm: &mut interpreter::vm::Vm, store_op:u8, load_op:u8, offset:u32, base:ArgsEnum, var1:ArgsEnum){
+        let mem_arg = binary::instruction::MemArg{
+            align: None,
+            offset: Some(offset),
+        };
+
+        // push 基址
+        vm.operand_stack.push(base.clone());
+
+        // push 存值
+        vm.operand_stack.push(var1.clone());
+
+        interpreter::vm::OPCODE_MAP.get()
+            .and_then(|v|v.get(store_op as usize).clone())
+            .or_else(||{println!("get op none");None})
+            .and_then(|o|{
+                o.unwrap()(vm,ArgsEnum::MemArg(mem_arg.clone()));
+                // let r = vm.operand_stack.pop().unwrap();
+                Some(())
+            }).or_else(||{println!("exec none");None})
+            .unwrap();
+
+        // load base
+        vm.operand_stack.push(base);
+
+        interpreter::vm::OPCODE_MAP.get()
+            .and_then(|v|v.get(load_op as usize).clone())
+            .or_else(||{println!("get op none");None})
+            .and_then(|o|{
+                o.unwrap()(vm,ArgsEnum::MemArg(mem_arg));
+                // let r = vm.operand_stack.pop().unwrap();
+                Some(())
+            }).or_else(||{println!("exec none");None})
+            .unwrap();
+
+        let r = vm.operand_stack.pop().unwrap();
+        assert_eq!(var1,r);
+    }
+
+    #[test]
+    pub fn test4(){
+        use crate::binary::opcodes;
+        let m = binary::module::Module::new();
+        let stack = interpreter::operand::new();
+        let limit = binary::module::Limits{
+            tag: None,
+            min: Some(1),
+            max: None
+        };
+        let memory = interpreter::vm_memory::Memory::new(limit);
+        let mut vm = interpreter::vm::Vm{
+            operand_stack: stack,
+            module: m,
+            memory
+        };
+
+        //初始话操作数组
+        interpreter::vm::init();
+
+
+        // assert_eq!(none_args_2(&mut vm,ArgsEnum::NONE,opcodes::MemorySize),U32(2));
+        // assert_eq!(none_args_2(&mut vm,U32(2),opcodes::MemoryGrow),U32(2));
+        // assert_eq!(none_args_2(&mut vm,ArgsEnum::NONE,opcodes::MemorySize),U32(4));
+
+        mem(&mut vm,opcodes::I32Store,opcodes::I32Load,0x10,U32(0x01),U32(100_i32 as u32));
+        mem(&mut vm, opcodes::I64Store,opcodes::I64Load,0x20,U32(0x02),U64(123_i64 as u64));
+        mem(&mut vm, opcodes::F32Store,opcodes::F32Load,0x30,U32(0x03),U32(1.5_f32 as u32));
+        mem(&mut vm,opcodes::F64Store,opcodes::F64Load,0x40,U32(0x40),U64(1.5_f64 as u64));
+        mem(&mut vm,opcodes::I32Store8,opcodes::I32Load8S,0x50,U32(0x50),I32(-100));
+        mem(&mut vm,opcodes::I32Store8,opcodes::I32Load8U,0x60,U32(0x06),U32(100));
+        mem(&mut vm,opcodes::I32Store16,opcodes::I32Load16S,0x70,U32(0x07),I32(-10000));
+        mem(&mut vm, opcodes::I32Store16,opcodes::I32Load16U,0x80,U32(0x08),U32(10000));
+        mem(&mut vm,opcodes::I64Store8,opcodes::I64Load8S,0x90,U32(0x09),I64(-100));
+        mem(&mut vm,opcodes::I64Store8,opcodes::I64Load8U,0xA0,U32(0x0A),U64(100));
+        mem(&mut vm,opcodes::I64Store16,opcodes::I64Load16S,0xB0,U32(0x0B),I64(-100));
+        mem(&mut vm,opcodes::I64Store16,opcodes::I64Load16U,0xC0,U32(0x0C),U64(100));
+        mem(&mut vm,opcodes::I64Store32,opcodes::I64Load32S,0xD0,U32(0x0D),I64(-1000000));
+        mem(&mut vm,opcodes::I64Store32,opcodes::I64Load32U,0xE0,U32(0x0E),U64(1000000));
     }
 }

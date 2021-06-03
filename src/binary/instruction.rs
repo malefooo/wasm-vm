@@ -127,6 +127,13 @@ impl ArgsEnum{
         }
     }
 
+    pub fn get_mem_args(&self) -> MemArg{
+        match self {
+            ArgsEnum::MemArg(v) => {v.clone()}
+            v => {panic!("{:?}",v)}
+        }
+    }
+
     pub fn get_type(&self) -> &str{
         match self {
             ArgsEnum::BlockArgs(_) => {"BlockArgs"}
